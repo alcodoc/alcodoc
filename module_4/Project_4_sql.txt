@@ -1,0 +1,91 @@
+
+ЗАПРОС для создания датасета для Project_4
+
+select
+    f.flight_id,
+    f.scheduled_departure,
+    ap1.city as city_departure,
+    ap.city as city_arrival,
+    ac.model as aircraft_model,
+    tf.fare_conditions,
+    count(distinct s.seat_no) as available_seats,
+    -- компоновка самолета по количеству мест разного класса обслуживания
+    avg(tf.amount) as price_seat,
+    -- цена одного места
+    count(distinct bp.seat_no) as occupied_seats,
+    -- количество проданных мест
+    count(distinct bp.seat_no) * 100 / nullif(count(distinct s.seat_no),0) as fullness_flight,
+    -- заполненность мест в самолете на рейсе
+    -- nullif используется из-за нулевых значений в рейсах на Новокузнецк
+    count(distinct bp.seat_no) * avg(tf.amount) as revenue_flight,
+    -- выручка от проданных билетов по каждому классу отдельно
+    count(distinct s.seat_no) - count(distinct bp.seat_no) as free_seats,
+    -- нераспроданные места
+    count(distinct s.seat_no) * avg(tf.amount) - count(distinct bp.seat_no) * avg(tf.amount) as lost_profit
+    -- упущенная выгода по каждому классу
+    
+from
+    dst_project.flights as f
+        join dst_project.airports as ap on f.arrival_airport = ap.airport_code
+            join dst_project.airports as ap1 on f.departure_airport = ap1.airport_code
+                join dst_project.aircrafts as ac on f.aircraft_code = ac.aircraft_code
+                    left join dst_project.ticket_flights as tf on f.flight_id = tf.flight_id
+                        left join dst_project.boarding_passes as bp on tf.ticket_no = bp.ticket_no 
+                                                                    and tf.flight_id = bp.flight_id
+                            left join dst_project.tickets as t on tf.ticket_no = t.ticket_no
+                                    left join dst_project.bookings as b on t.book_ref = b.book_ref
+                                        left join dst_project.seats as s on ac.aircraft_code = s.aircraft_code
+                                                                    and s.fare_conditions = tf.fare_conditions 
+    /* В запросе объединены все таблицы из базы данных dst_project. Эту конструкцию можно использовать для 
+    написания других запросов к этой базе данных, если понадобится дополнительная информация. Однако в итоговый 
+    датасет включена информация не из всех таблиц, так как для ответа на поставленный вопрос она будет избыточной.
+    Кроме того отказ от всей полноты базы данных дал возможность сгруппировать нужную информацию и представить ее 
+    в удобном виде, который не требует дополнительной обработки на Python.
+    
+    Начиная с таблицы Ticket_flights присоединяем последующие таблицы по left join, так как в базе данных имеются 
+    ресы в Новокузнецк, по которым нет данных о продаже билетов. */   
+    
+where f.departure_airport = 'AAQ'
+    and (date_trunc('month', f.scheduled_departure) in ('2017-01-01','2017-02-01', '2017-12-01'))
+    and f.status not in ('Cancelled')
+    -- Условия проекта: выполненные зимой 2017 года рейсы из Анапы.
+group by 
+    f.flight_id,
+    f.scheduled_departure,
+    ap1.city,
+    ap.city,
+    ac.model,
+    tf.fare_conditions,
+    s.fare_conditions
+
+___________________________________________________________________________________________________________
+
+ЗАПРОС для получения справочной информации о предельной дальности полета модели самолета и средней продолжительности
+полетов от Анапы до Москвы, Белгорода и Новокузнецка. Эта информация одинакова для всех рейсов в указанные города,
+имеет справочный характер, поэтому нет смысла перегружать ею основной датасет. Информация о расстоянии между 
+аэропортами также носит справочный характер и общедоступна, поэтому нет смысла расчитывать ее по координатам 
+аэропортов.
+
+select
+    --f.flight_id,
+    ap1.city as city_departure,
+    ap.city as city_arrival,
+    ac.model as aircraft_model,
+    ac.range,
+    avg(f.actual_arrival - f.actual_departure) as flight_time
+    
+from
+    dst_project.flights as f
+        join dst_project.airports as ap on f.arrival_airport = ap.airport_code
+            join dst_project.airports as ap1 on f.departure_airport = ap1.airport_code
+                join dst_project.aircrafts as ac on f.aircraft_code = ac.aircraft_code
+                
+where f.departure_airport = 'AAQ'
+    and (date_trunc('month', f.scheduled_departure) in ('2017-01-01','2017-02-01', '2017-12-01'))
+    and f.status not in ('Cancelled')
+    
+group by
+    ap1.city,
+    ap.city,
+    ac.model,
+    ac.range
